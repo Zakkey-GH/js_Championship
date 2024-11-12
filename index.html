@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Object Detection with Cloud Vision API</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://unpkg.com/wanakana"></script>
+    <link rel="icon" href="data:,"> <!-- エラー回避  http://127.0.0.1:5500/favicon.ico 404 (Not Found) -->
+    <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+    <div class="container">
+
+        <h1><img src="./img/NaaaaanColle.png" alt=""></h1>
+        <button id="recordButton">録音開始</button>
+        <div id="status"></div>
+        <div class="result-container">
+            <h3>日本語テキスト</h3>
+            <div id="japaneseResult" class="result-box"></div>
+            <h3>ローマ字</h3>
+            <div type="text" id="romajiResult" class="result-box">n</div>
+        </div>
+
+
+        <video id="videoElement" autoplay></video>
+        <br>
+        <button id="captureButton">撮影</button>
+        <div>検出された物体</div>
+        <div id="result"></div>
+        <canvas id="canvas"></canvas>
+
+
+        <button id="speakButton">Speak</button>
+        <div class="status" id="status"></div>
+
+        <button id="kakuninn">確認</button>
+    </div>
+
+    <script>
+
+        //----------グローバル変数-------------------------------------------
+        let result_romajiText = "";
+        let ObjectName = "";
+        const API_KEY = 'AIzaSyBApC9PZYx_PsNggTS4zCgA8E2topeEZXY';
+
+        //----------関数定義------------------------------------------------
+
+
+        //----------音声→テキスト変換----------
+        function Speak2Text() {
+
+            let mediaRecorder;
+            let audioChunks = [];
+            let isRecording = false;
+
+            
+            const API_URL = 'https://speech.googleapis.com/v1/speech:recognize';
+
+            async function initializeRecording() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                        channelCount: 1,
+                        sampleRate: 16000
+                    }
+                    });
+            
+                    mediaRecorder = new MediaRecorder(stream, {
+                        mimeType: 'audio/webm;codecs=opus'
+                    });
+
+                    mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm;codecs=opus' });
+                await convertAudioToBase64(audioBlob);
+                };
+
+                $('#status').text('マイクの準備ができました');
+                } catch (err) {
+                console.error('マイクのアクセスエラー:', err);
+                $('#status').text('マイクのアクセスに失敗しました: ' + err.message);
+                }
+            }   
+
+            function convertAudioToBase64(blob) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                        try {
+                            const base64Audio = reader.result.split(',')[1];
+                            await sendToGoogleAPI(base64Audio);
+                            resolve();
+                        } catch (error) {
+                            reject(error);
+                        }
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            }
+
+
+            // const getTextfromResult_romaji = (base64Audio) =>{
+            //     const result =""
+            //     function{
+            //         result = "text"
+            //     }
+            //     return result
+            // }
+            // const resultromaji = getTextfromResult_romaji(引き数)
+            
+            console.log(1);
+
+            async function sendToGoogleAPI(base64Audio) {
+                console.log(2);
+                $('#status').text('Google APIに送信中...');
+
+                const requestData = {
+                    config: {
+                        encoding: 'WEBM_OPUS',
+                        sampleRateHertz: 48000, //WEBM OPUS ヘッダーに記載されているサンプルレートは 48000Hz
+                        languageCode: 'ja-JP',
+                        model: 'default'
+                    },
+                    audio: {
+                        content: base64Audio
+                    }
+                };
+
+                try {
+                    const response = await fetch(`${API_URL}?key=${API_KEY}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestData)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error ? errorData.error.message : '未知のエラーが発生しました');
+                    }
+
+                    const data = await response.json();
+                    console.log('API Response:', data);  // デバッグ用
+
+                    if (data.results && data.results[0]) {
+                        const japaneseText = data.results[0].alternatives[0].transcript;
+                        const romajiText = wanakana.toRomaji(japaneseText);
+                        // console.log('romaji存在確認', romajiText);  // デバッグ用
+                        result_romajiText = romajiText
+                        console.log("sendToGoogleAPI関数内でのresult_romajiTextは",result_romajiText)
+                        
+                        $('#japaneseResult').text(japaneseText);
+                        $('#romajiResult').text(romajiText);
+                        $('#status').text('変換完了');
+                    } else {
+                        $('#status').text('音声を認識できませんでした');
+                    }
+                } catch (err) {
+                    console.error('API Error:', err);
+                    $('#status').text('エラー: ' + err.message);
+                }
+            // return romajiText;
+            }
+            console.log(3);
+
+            $('#recordButton').click(function() {
+                if (!isRecording) {
+                    audioChunks = [];
+                    mediaRecorder.start(1000);  // 1秒ごとにデータを取得
+                    isRecording = true;
+                    $(this).addClass('recording').text('録音停止');
+                    $('#status').text('録音中...');
+                } else {
+                    mediaRecorder.stop();
+                    isRecording = false;
+                    $(this).removeClass('recording').text('録音開始');
+                }
+            });
+            
+            initializeRecording();
+            console.log(result_romajiText)
+            return result_romajiText;
+        };
+
+
+
+
+        //----------画像認識----------
+
+        function VisionAPI(){
+            const API_ENDPOINT = 'https://vision.googleapis.com/v1/images:annotate';
+            // キャンバスのサイズをビデオに合わせる
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            // カメラの映像をキャンバスに描画
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // キャンバスの画像をBase64エンコード
+            const imageData = canvas.toDataURL('image/jpeg').split(',')[1];
+
+            // Cloud Vision APIにリクエストを送信
+            $.ajax({
+                url: `${API_ENDPOINT}?key=${API_KEY}`,
+                type: 'POST',
+                data: JSON.stringify({
+                    "requests": [{
+                        "image": {
+                            "content": imageData
+                        },
+                        "features": [{
+                            "type": "OBJECT_LOCALIZATION",
+                            "maxResults": 10
+                        }]
+                    }]
+                }),
+                contentType: 'application/json',
+                processData: false,
+                success: function(response) {
+                    // 画像の中心座標を計算
+                    const centerX = canvas.width / 2;
+                    const centerY = canvas.height / 2;
+                    
+                    // 中心に最も近い物体を探す
+                    let closestObject = null;
+                    let minDistance = Infinity;
+                    
+                    response.responses[0].localizedObjectAnnotations.forEach(function(object) {
+                        const vertices = object.boundingPoly.normalizedVertices;
+                        // オブジェクトの中心を計算
+                        const objCenterX = (vertices[0].x + vertices[2].x) / 2 * canvas.width;
+                        const objCenterY = (vertices[0].y + vertices[2].y) / 2 * canvas.height;
+                        
+                        // 画像の中心との距離を計算
+                        const distance = Math.sqrt(
+                            Math.pow(centerX - objCenterX, 2) + 
+                            Math.pow(centerY - objCenterY, 2)
+                        );
+                        
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            closestObject = object;
+                        }
+                    });
+                    
+                    // 結果を表示
+                    if (closestObject) {
+                        $('#result').text( closestObject.name); //'検出された物体: ' +
+                        ObjectName = closestObject.name; //returnで値を返せず、禁断のグローバル変数格納
+                    } else {
+                        $('#result').text('物体が検出されませんでした');
+                    }
+                },
+                error: function(error) {
+                    console.error('API リクエストエラー:', error);
+                    $('#result').text('エラーが発生しました');
+                }
+            });
+        };
+
+
+
+
+        
+        //----------テキスト→音声変換----------
+        function Text2Speak() {
+            const API_ENDPOINT = 'https://texttospeech.googleapis.com/v1/text:synthesize';
+            
+            // テキストを取得
+            // const text = $('#result').val(); //★resultのテキスト内容が読めないのでマスク
+            // console.log("関数呼び出し時",text);
+            const text = ObjectName;
+            const SpeakText = `これは。 ${text} です。わかったかな？ Repeat after me. ${text} `;
+            
+            if (!SpeakText) {
+                $('#status').text('Please enter some text');
+                return;
+            }
+
+            $('#status').text('Converting text to speech...');
+
+            const requestBody = {
+                input: {
+                    text: SpeakText
+                },
+                voice: {
+                    languageCode: 'en-JP',
+                    name: 'en-US-Standard-C',
+                    ssmlGender: 'FEMALE'
+                },
+                audioConfig: {
+                    audioEncoding: 'MP3',
+                    speakingRate: 0.8
+                }
+            };
+
+            $.ajax({
+                url: `${API_ENDPOINT}?key=${API_KEY}`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(requestBody),
+                success: function(response) {
+                    const audioContent = response.audioContent;
+                    const audio = new Audio(`data:audio/mp3;base64,${audioContent}`);
+                    audio.play();
+                    $('#status').text('Playing audio...');
+                    
+                    audio.onended = function() {
+                        $('#status').text('Finished playing');
+                    };
+                },
+                error: function(error) {
+                    $('#status').text('Error: ' + error.responseText);
+                }
+            });
+        }
+
+
+
+
+
+
+        //----------メイン処理---------------------------------------------------------
+            // カメラの設定
+            const video = document.getElementById('videoElement');
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
+            
+            // カメラの起動
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(function(stream) {
+                        video.srcObject = stream;
+                    })
+                    .catch(function(error) {
+                        console.error("カメラの起動に失敗しました:", error);
+                    });
+            }
+            
+            $(document).ready(function(){
+                const r = Speak2Text()
+                console.log(r)
+
+
+                $('#captureButton').click(function() {
+                    VisionAPI(); //★$('#captureButton').click(VisionAPI()); の記述だとエラーなぜ？
+                    console.log("id result の内容",result);
+                });
+                
+
+                $('#speakButton').click(function() {
+                    Text2Speak();
+                });
+                // console.log("S2T関数からのリターンはあるか",Speak2Text());
+                
+
+                $('#kakuninn').click(function(){
+                    const text = $('#result').val();
+                    console.log("関数呼び出し後の確認",text);
+                });
+
+
+
+                // console.log("$(document).ready状態でのresult_romajiTextは",result_romajiText)
+
+
+                // 撮影ボタンのクリックイベント
+                // ★テキストが変わると変更されるはずなのになぜ
+                // $('#romajiResult').on('input', function() {
+                    
+                //     // var text = $(this).val();
+                //     // console.log("現在のテキスト:", text);
+
+                //     // // テキストが変更されたときに実行する処理
+                //     console.log("if文直前のresult_romajiTextは",result_romajiText)
+                //     if (result_romajiText === 'tesuto') {
+                //         console.log("特定の文字列が入力されました: 'tesuto'");
+                        
+                //     }
+                // });
+            });
+
+            
+
+        //     $(document).ready(
+        //     // ユーザーの質問が発生した際のイベント
+        //     $('#romajiResult').on('input', function(){
+        //         console.log("");
+        //     console.log("ローマ字の参照",$('#romajiResult').text());
+        //     let MatchText = $('#romajiResult').text();
+        //     console.log("MatchTextは",MatchText);
+        //     if (MatchText.includes("nan") || MatchText.includes("kore")){
+        //         console.log("VisionAPI()のコールが可能");
+        //     }else{
+        //         console.log("エラーが発生してるよ～");
+        //     }
+        // })
+        // );
+
+            
+        
+    </script>
+</body>
+</html>
