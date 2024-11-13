@@ -7,8 +7,6 @@ js選手権
 
 ## ③アプリのデプロイURL
 https://gsacademyyy.sakura.ne.jp/js_Championship/index.html
-※アプリの実行結果をHTMLに反映させるスキルがなく、ただのまっさらなページです。
-https://github.com/Zakkey-GH/js_Championship.git
 
 ## ④アプリのログイン用IDまたはPassword（ある場合）
 - ID: なし
